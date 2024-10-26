@@ -1,0 +1,80 @@
+SCRIPT for REDCap API Integration for Importing Records
+
+NOTE: The dataset used here is https://www.kaggle.com/datasets/prasad22/healthcare-dataset
+
+from sqlalchemy import create_engine
+import pandas as pd
+import requests
+import json
+
+# Verified SQL Server connection details
+server = 'yourservername'
+database = 'yourdatabasename'
+driver = 'SQL Server'  # Replace this with the driver name confirmed with pyodbc
+
+# Create SQLAlchemy engine
+connection_string = f'mssql+pyodbc://{server}/{database}?driver={driver.replace(" ", "+")}&Trusted_Connection=yes'
+engine = create_engine(connection_string)
+
+# REDCap and table details
+redcap_url = 'yourREDCapURL'  # Replace with your REDCap API URL
+api_token = 'yourREDCapToken'  # Replace with your REDCap API token
+table_name = 'dbo.healthcare_dataset'  # Your tablename in the database. Ensure the schema is included if needed
+
+# Attempt to fetch data from the table using a direct SQL query
+try:
+    query = f"SELECT * FROM {table_name}"
+    data_df = pd.read_sql_query(query, con=engine)
+except Exception as e:
+    print("Error fetching data:", e)
+    data_df = None
+
+# Proceed if data was successfully fetched
+if data_df is not None:
+    # Define the mapping of database columns to REDCap fields
+    column_mapping = {
+        'Name': 'name',
+        'Age': 'age',
+        'Gender': 'gender',
+        'Blood_Type': 'blood_type',
+        'Medical_Condition': 'medical_condition',
+        'Date_of_Admission': 'date_of_admission',
+        'Doctor': 'doctor',
+        'Hospital': 'hospital',
+        'Insurance_Provider': 'insurance_provider',
+        'Billing_Amount': 'billing_amount',
+        'Room_Number': 'room_number',
+        'Admission_Type': 'admission_type',
+        'Discharge_Date': 'discharge_date',
+        'Medication': 'medication',
+        'Test_Results': 'test_results'
+    }
+    
+    # Rename columns in data_df
+    data_df.rename(columns=column_mapping, inplace=True)
+
+    # Convert DataFrame to JSON format required by REDCap API
+    data_json = data_df.to_dict(orient='records')
+
+    # Loop through the records and send them to REDCap
+    for record in data_json:
+        payload = {
+            'token': api_token,
+            'content': 'record',
+            'action': 'import',
+            'format': 'json',
+            'type': 'flat',
+            'data': json.dumps([record])  # Sending one record at a time
+        }
+        response = requests.post(redcap_url, data=payload)
+        
+        # Check response for success/failure
+        if response.status_code == 200:
+            print("Record uploaded successfully:", response.json())
+        else:
+            print("Error uploading record:", response.status_code, response.text)
+else:
+    print("Data retrieval failed; no records were uploaded.")
+
+# Close the connection
+engine.dispose()
